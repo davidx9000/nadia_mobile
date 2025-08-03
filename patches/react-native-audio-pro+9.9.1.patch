@@ -1,0 +1,186 @@
+diff --git a/node_modules/react-native-audio-pro/android/src/main/java/dev/rnap/reactnativeaudiopro/AudioProController.kt b/node_modules/react-native-audio-pro/android/src/main/java/dev/rnap/reactnativeaudiopro/AudioProController.kt
+index b930aab..ba4fa94 100644
+--- a/node_modules/react-native-audio-pro/android/src/main/java/dev/rnap/reactnativeaudiopro/AudioProController.kt
++++ b/node_modules/react-native-audio-pro/android/src/main/java/dev/rnap/reactnativeaudiopro/AudioProController.kt
+@@ -11,6 +11,7 @@ import androidx.media3.common.MediaMetadata
+ import androidx.media3.common.PlaybackException
+ import androidx.media3.common.Player
+ import androidx.media3.session.MediaBrowser
++import androidx.media3.session.MediaSession
+ import androidx.media3.session.SessionToken
+ import com.facebook.react.bridge.Arguments
+ import com.facebook.react.bridge.ReactApplicationContext
+@@ -739,4 +740,51 @@ object AudioProController {
+ 		}
+ 		return if (headerMap.isNotEmpty()) headerMap else null
+ 	}
++
++	fun updateMetadata(trackMap: ReadableMap) {
++    ensureSession()
++
++    val title = trackMap.getString("title") ?: "Unknown Title"
++    val artist = trackMap.getString("artist") ?: "Unknown Artist"
++    val album = trackMap.getString("album") ?: "Unknown Album"
++    val artworkUri = trackMap.getString("artwork")?.toUri()
++
++    val metadataBuilder = MediaMetadata.Builder()
++        .setTitle(title)
++        .setArtist(artist)
++        .setAlbumTitle(album)
++
++    if (artworkUri != null) {
++        metadataBuilder.setArtworkUri(artworkUri)
++    }
++
++    runOnUiThread {
++        // Get the MediaSession from the service
++        val mediaSession = AudioProPlaybackService.getCurrentMediaSession()
++        
++        if (mediaSession != null) {
++            // Update metadata through the player's current MediaItem
++            val currentItem = mediaSession.player.currentMediaItem
++            if (currentItem != null) {
++                // Create updated MediaItem with new metadata but same URI and ID
++                val updatedItem = currentItem.buildUpon()
++                    .setMediaMetadata(metadataBuilder.build())
++                    .build()
++                
++                // Replace the item without resetting playback position
++                mediaSession.player.replaceMediaItem(
++                    mediaSession.player.currentMediaItemIndex, 
++                    updatedItem
++                )
++                
++                activeTrack = trackMap
++                log("Updated session metadata: $title - $artist")
++            } else {
++                log("No current media item to update")
++            }
++        } else {
++            log("MediaSession not available - service may not be running")
++        }
++    }
++	}
+ }
+diff --git a/node_modules/react-native-audio-pro/android/src/main/java/dev/rnap/reactnativeaudiopro/AudioProModule.kt b/node_modules/react-native-audio-pro/android/src/main/java/dev/rnap/reactnativeaudiopro/AudioProModule.kt
+index 9d39eda..7df1d65 100644
+--- a/node_modules/react-native-audio-pro/android/src/main/java/dev/rnap/reactnativeaudiopro/AudioProModule.kt
++++ b/node_modules/react-native-audio-pro/android/src/main/java/dev/rnap/reactnativeaudiopro/AudioProModule.kt
+@@ -52,6 +52,11 @@ class AudioProModule(private val reactContext: ReactApplicationContext) :
+ 		}
+ 	}
+ 
++	@ReactMethod
++	fun updateMetadata(track: ReadableMap) {
++		AudioProController.updateMetadata(track)
++	}
++
+ 	@ReactMethod
+ 	fun pause() {
+ 		AudioProController.pause()
+diff --git a/node_modules/react-native-audio-pro/android/src/main/java/dev/rnap/reactnativeaudiopro/AudioProPlaybackService.kt b/node_modules/react-native-audio-pro/android/src/main/java/dev/rnap/reactnativeaudiopro/AudioProPlaybackService.kt
+index dc74d9c..bd0f4df 100644
+--- a/node_modules/react-native-audio-pro/android/src/main/java/dev/rnap/reactnativeaudiopro/AudioProPlaybackService.kt
++++ b/node_modules/react-native-audio-pro/android/src/main/java/dev/rnap/reactnativeaudiopro/AudioProPlaybackService.kt
+@@ -33,6 +33,14 @@ open class AudioProPlaybackService : MediaLibraryService() {
+ 	companion object {
+ 		private const val NOTIFICATION_ID = 789
+ 		private const val CHANNEL_ID = "audio_pro_notification_channel_id"
++		
++		// Add static reference to current service instance
++		private var currentInstance: AudioProPlaybackService? = null
++		
++		// Method to get the current MediaSession
++		fun getCurrentMediaSession(): MediaSession? {
++			return currentInstance?.mediaLibrarySession
++		}
+ 	}
+ 
+ 	/**
+@@ -75,6 +83,7 @@ open class AudioProPlaybackService : MediaLibraryService() {
+ 	@OptIn(UnstableApi::class) // MediaSessionService.setListener
+ 	override fun onCreate() {
+ 		super.onCreate()
++		currentInstance = this  // Set the current instance
+ 		initializeSessionAndPlayer()
+ 		setListener(MediaSessionServiceListener())
+ 	}
+@@ -115,6 +124,8 @@ open class AudioProPlaybackService : MediaLibraryService() {
+ 	override fun onDestroy() {
+ 		android.util.Log.d("AudioProPlaybackService", "Service being destroyed")
+ 
++		currentInstance = null  // Clear the instance reference
++
+ 		// Make sure to release all resources
+ 		try {
+ 			if (::mediaLibrarySession.isInitialized) {
+diff --git a/node_modules/react-native-audio-pro/src/audioPro.ts b/node_modules/react-native-audio-pro/src/audioPro.ts
+index 4a9e756..d2019d4 100644
+--- a/node_modules/react-native-audio-pro/src/audioPro.ts
++++ b/node_modules/react-native-audio-pro/src/audioPro.ts
+@@ -25,6 +25,7 @@ import type {
+ 	AudioProEventCallback,
+ 	AudioProPlayOptions,
+ 	AudioProTrack,
++	AudioProTrackMetadata,
+ } from './types';
+ 
+ const NativeAudioPro =
+@@ -133,6 +134,20 @@ export const AudioPro = {
+ 		NativeAudioPro.play(resolvedTrack, nativeOptions);
+ 	},
+ 
++	updateMetadata(track: AudioProTrackMetadata) {
++	  const resolvedTrack = { ...track };
++
++	  resolvedTrack.artwork = resolveAssetSource(track.artwork, 'artwork');
++
++	  if (typeof resolvedTrack.artwork === 'string') {
++	    resolvedTrack.artwork = normalizeFilePath(resolvedTrack.artwork);
++	  }
++
++	  logDebug('AudioPro: updateMetadata()', resolvedTrack);
++
++	  NativeAudioPro.updateMetadata(resolvedTrack);
++	},
++
+ 	/**
+ 	 * Pause the current playback
+ 	 * No-op if no track is playing or player is in IDLE or ERROR state
+@@ -472,4 +487,5 @@ export const AudioPro = {
+ 	addAmbientListener(callback: AudioProAmbientEventCallback) {
+ 		return ambientEmitter.addListener('AudioProAmbientEvent', callback);
+ 	},
++
+ };
+diff --git a/node_modules/react-native-audio-pro/src/index.ts b/node_modules/react-native-audio-pro/src/index.ts
+index 2093d49..2d5ad42 100644
+--- a/node_modules/react-native-audio-pro/src/index.ts
++++ b/node_modules/react-native-audio-pro/src/index.ts
+@@ -26,6 +26,8 @@ export { useAudioPro } from './useAudioPro';
+ export type {
+ 	/** Represents an audio track with its properties */
+ 	AudioProTrack,
++	/** Represents an audio track metadata */
++	AudioProTrackMetadata,
+ 	/** Callback function type for audio events */
+ 	AudioProEventCallback,
+ 	/** Type of audio events that can be emitted */
+diff --git a/node_modules/react-native-audio-pro/src/types.ts b/node_modules/react-native-audio-pro/src/types.ts
+index c014176..646c88b 100644
+--- a/node_modules/react-native-audio-pro/src/types.ts
++++ b/node_modules/react-native-audio-pro/src/types.ts
+@@ -22,6 +22,13 @@ export type AudioProTrack = {
+ 	[key: string]: unknown; // custom properties
+ };
+ 
++export type AudioProTrackMetadata = {
++	title: string;
++	artwork: AudioProArtwork;
++	album?: string;
++	artist?: string;
++};
++
+ // ==============================
+ // CONFIGURE OPTIONS
+ // ==============================

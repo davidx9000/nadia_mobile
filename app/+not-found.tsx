@@ -1,10 +1,12 @@
 import { Link, Stack } from 'expo-router';
 import { StyleSheet } from 'react-native';
+import { router } from 'expo-router';
 
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 
 export default function NotFoundScreen() {
+  router.replace('(tabs)');
   return (
     <>
       <Stack.Screen options={{ title: 'Oops!' }} />
