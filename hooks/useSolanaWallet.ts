@@ -22,6 +22,8 @@ import { useSession } from '@/context/authSession';
 // Ensure Buffer is available globally
 global.Buffer = global.Buffer || Buffer;
 
+type WalletProvider = 'phantom' | 'solflare';
+
 interface SolanaWalletSession {
   publicKey: string;
   session: string;
@@ -51,10 +53,20 @@ const DEFAULT_FEE_PER_SIGNATURE = 5000;
  * Universal links are recommended for production apps
  */
 const useUniversalLinks = true;
-const alertTitle = 'Phantom Wallet';
+const alertTitle = 'Solana Wallet';
 
-const buildUrl = (path: string, params: URLSearchParams) =>
-  `${useUniversalLinks ? "https://phantom.app/ul/" : "phantom://"}v1/${path}?${params.toString()}`;
+const getBaseUrl = (provider: WalletProvider) => {
+  return useUniversalLinks
+    ? provider === 'phantom'
+      ? 'https://phantom.app/ul/'
+      : 'https://solflare.com/ul/'
+    : provider === 'phantom'
+      ? 'phantom://'
+      : 'solflare://';
+};
+
+const buildUrl = (path: string, params: URLSearchParams, provider: WalletProvider) =>
+  `${getBaseUrl(provider)}v1/${path}?${params.toString()}`;
 
 const decryptPayload = (data: string, nonce: string, sharedSecret: Uint8Array) => {
   const decryptedData = nacl.box.open.after(bs58.decode(data), bs58.decode(nonce), sharedSecret);
@@ -92,6 +104,7 @@ export const calculatePlatformFee = (tipAmount) => {
 
 export const useSolanaWallet = (): UseSolanaWalletReturn => {
   const connection = new Connection(NETWORK);
+  const providerRef = useRef<WalletProvider>('phantom');
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [signedMessage, setSignedMessage] = useState<string | null>(null);
@@ -103,9 +116,9 @@ export const useSolanaWallet = (): UseSolanaWalletReturn => {
   const [dappKeyPair, setDappKeyPair] = useState<nacl.BoxKeyPair | null>(null);
 
   // Redirect URLs
-  const onConnectRedirectLink = ExpoLinking.createURL("login?request=phantom-connect");
-  const onSignMessageRedirectLink = ExpoLinking.createURL("login?request=phantom-sign");
-  const onDisconnectRedirectLink = ExpoLinking.createURL("login?request=phantom-logout");
+  const onConnectRedirectLink = ExpoLinking.createURL("login?request=connect");
+  const onSignMessageRedirectLink = ExpoLinking.createURL("login?request=sign");
+  const onDisconnectRedirectLink = ExpoLinking.createURL("login?request=disconnect");
   const { session: authSession } = useSession();
 
   // Handle dappKeyPair
@@ -148,6 +161,7 @@ export const useSolanaWallet = (): UseSolanaWalletReturn => {
     if (!url) return;
 
     try {
+      const provider = getProvider();
       const urlObj = new URL(url);
       const params = urlObj.searchParams;
       const requestParam = params.get("request");
@@ -161,18 +175,20 @@ export const useSolanaWallet = (): UseSolanaWalletReturn => {
       }
 
       // Handle connection response
-      if (url.includes("login") && requestParam === "phantom-connect") {
+      if (url.includes("login") && requestParam === "connect") {
         try {
-          const phantomEncryptionPublicKey = params.get("phantom_encryption_public_key");
+          const encryptionPublicKeyParam =
+            provider === 'phantom' ? 'phantom_encryption_public_key' : 'solflare_encryption_public_key';
+          const encryptionPublicKey = params.get(encryptionPublicKeyParam);
           const data = params.get("data");
           const nonce = params.get("nonce");
 
-          if (!phantomEncryptionPublicKey || !data || !nonce) {
+          if (!encryptionPublicKey || !data || !nonce) {
             throw new Error("Missing required parameters");
           }
 
           const sharedSecret = nacl.box.before(
-            bs58.decode(phantomEncryptionPublicKey),
+            bs58.decode(encryptionPublicKey),
             dappKeyPair.secretKey
           );
 
@@ -190,21 +206,21 @@ export const useSolanaWallet = (): UseSolanaWalletReturn => {
           setIsConnected(true);
         } catch (error) {
           console.error("Connection error:", error);
-          Alert.alert(alertTitle, "Failed to connect to Phantom Wallet");
+          Alert.alert(alertTitle, "Failed to connect to wallet");
           setIsConnecting(false);
         }
       }
 
       // Handle disconnection response
-      if (url.includes("login") && requestParam === "phantom-logout") {
+      if (url.includes("login") && requestParam === "disconnect") {
         setSession(null);
         setPublicKey(null);
         setIsConnected(false);
-        Alert.alert(alertTitle, "Phantom Wallet disconnected successfully");
+        Alert.alert(alertTitle, "Wallet disconnected successfully");
       }
 
       // Handle sign message response
-      if (url.includes("login") && requestParam === "phantom-sign") {
+      if (url.includes("login") && requestParam === "sign") {
         try {
           const data = params.get("data");
           const nonce = params.get("nonce");
@@ -286,8 +302,8 @@ export const useSolanaWallet = (): UseSolanaWalletReturn => {
 
     if (isConnecting) return;
     setIsConnecting(true);
-
     try {
+      const provider = getProvider();
       const params = new URLSearchParams({
         dapp_encryption_public_key: bs58.encode(dappKeyPair.publicKey),
         cluster: "mainnet-beta",
@@ -295,12 +311,12 @@ export const useSolanaWallet = (): UseSolanaWalletReturn => {
         redirect_link: onConnectRedirectLink,
       });
 
-      const url = buildUrl("connect", params);
+      const url = buildUrl("connect", params, provider);
       await Linking.openURL(url);
 
     } catch (error) {
       console.error("Connection error:", error);
-      Alert.alert(alertTitle, "Failed to open Phantom Wallet");
+      Alert.alert(alertTitle, "Failed to open wallet");
       setIsConnecting(false);
     }
   }, [isConnecting, dappKeyPair, onConnectRedirectLink]);
@@ -312,6 +328,8 @@ export const useSolanaWallet = (): UseSolanaWalletReturn => {
     if (!session) return;
 
     try {
+
+      const provider = getProvider();
       const payload = {
         session: session.session,
       };
@@ -325,11 +343,11 @@ export const useSolanaWallet = (): UseSolanaWalletReturn => {
         payload: bs58.encode(encryptedPayload),
       });
 
-      const url = buildUrl("disconnect", params);
+      const url = buildUrl("disconnect", params, provider);
       await Linking.openURL(url);
     } catch (error) {
       console.error("Disconnect error:", error);
-      Alert.alert(alertTitle, "Failed to disconnect from Phantom Wallet");
+      Alert.alert(alertTitle, "Failed to disconnect from wallet");
     }
   }, [session, dappKeyPair, onDisconnectRedirectLink]);
 
@@ -338,12 +356,13 @@ export const useSolanaWallet = (): UseSolanaWalletReturn => {
    **/
   const signMessage = useCallback(async (): Promise<string | null> => {
     if (!session) {
-      Alert.alert(alertTitle, "Please connect to Phantom Wallet first");
+      Alert.alert(alertTitle, "Please connect to your wallet first");
       return null;
     }
 
     try {
 
+      const provider = getProvider();
       const message = generateLoginMessage();
       lastSignedMessage.current = message;
 
@@ -362,7 +381,7 @@ export const useSolanaWallet = (): UseSolanaWalletReturn => {
         payload: bs58.encode(encryptedPayload),
       });
 
-      const url = buildUrl("signMessage", params);
+      const url = buildUrl("signMessage", params, provider);
       await Linking.openURL(url);
 
       return "Message signing initiated";
@@ -411,6 +430,7 @@ export const useSolanaWallet = (): UseSolanaWalletReturn => {
       }
 
       try {
+        const provider = getProvider();
         const transaction = await createTransferTransaction(amount, toAddress);
         if (!transaction) return null;
 
@@ -433,7 +453,7 @@ export const useSolanaWallet = (): UseSolanaWalletReturn => {
           payload: bs58.encode(encryptedPayload),
         });
 
-        const url = buildUrl("signTransaction", params);
+        const url = buildUrl("signTransaction", params, provider);
         await Linking.openURL(url);
 
         return true;
@@ -445,12 +465,20 @@ export const useSolanaWallet = (): UseSolanaWalletReturn => {
     [session, publicKey, dappKeyPair]
   );
 
+  const selectProvider = (wallet: WalletProvider) => {
+    providerRef.current = wallet;
+  };
+
+  const getProvider = () => providerRef.current;
+
   const generateLoginMessage = () => {
     const date = Date.now();
     return `Sign in to Nadia Radio: ${date}`;
   }
 
   return {
+    provider: getProvider(),
+    selectProvider,
     isConnected,
     isConnecting,
     publicKey,

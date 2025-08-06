@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useFocusEffect } from 'react';
+import { AppState } from 'react-native';
 import WebSocketService from '@/services/websocket';
 
 const WebSocketContext = createContext({
@@ -25,7 +26,14 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
       setIsConnected(false);
     });
 
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        WebSocketService.connect();
+      }
+    });
+
     return () => {
+      subscription.remove();
       WebSocketService.disconnect();
     };
   }, []);

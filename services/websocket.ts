@@ -2,31 +2,49 @@ import { io, Socket } from 'socket.io-client';
 
 class WebSocketService {
   socket: Socket | null = null;
+  hasListeners = false;
 
   connect() {
-    if (this.socket) return;
+    if (this.socket) {
+      if (!this.socket.connected && !this.socket.active) {
+        this.socket.connect();
+      }
+      return;
+    }
 
     this.socket = io('wss://www.nadiaradio.com', {
       path: '/socket',
       transports: ['websocket'],
       reconnection: true,
-      reconnectionAttempts: 10000000000,
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 2000,
       reconnectionDelayMax: 5000,
       timeout: 5000,
       autoConnect: true,
     });
 
+    this.setupListeners();
+  }
+
+  private setupListeners() {
+    if (!this.socket || this.hasListeners) return;
+    this.hasListeners = true;
+
     this.socket.on('connect', () => {
-      console.log('WebSocket connected');
+      console.log('[WebSocket] Connected');
     });
 
-    this.socket.on('disconnect', () => {
-      console.log('WebSocket disconnected');
+    this.socket.on('disconnect', (err) => {
+      if (!this.socket?.active) {
+        this.connect();
+      }
     });
 
-    this.socket.on('connect_error', (error) => {
-      console.error('WebSocket error:', error);
+    this.socket.on('connect_error', (err) => {
+      console.error('[WebSocket] Connect error', err?.message || err);
+      if (!this.socket?.active) {
+        this.connect();
+      }
     });
   }
 

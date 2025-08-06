@@ -20,7 +20,7 @@ import api from '@/services/axios';
 import { useSession } from '@/context/authSession';
 
 export default function HomeScreen() {
-  const { session, checkSession } = useSession();
+  const { session, isAuthLoading } = useSession();
   const [lastTweet, setLastTweet] = useState(null);
   const [topSongs, setTopSongs] = useState([]);
   const [isLoadingTimeline, setIsLoadingTimeline] = useState(true);
@@ -43,7 +43,6 @@ export default function HomeScreen() {
 
   useEffect(() => {
     loadHomeTimeline();
-    checkSession();
   }, []);
 
   return (

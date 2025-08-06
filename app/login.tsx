@@ -14,7 +14,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import FontAwesome6 from '@expo/vector-icons/FontAwesome6';
 import PhantomIcon from '@/assets/images/phantom_wallet_icon.svg';
-import { router } from 'expo-router';
+import SolflareIcon from '@/assets/images/solflare_wallet_icon.svg';
+import { router, useNavigation } from 'expo-router';
 import { useSession } from '@/context/authSession';
 import { useSolanaWallet } from '@/hooks/useSolanaWallet';
 import * as Linking from 'expo-linking';
@@ -25,6 +26,7 @@ import api from '@/services/axios';
 WebBrowser.maybeCompleteAuthSession();
 
 export default function loginScreen() {
+  const navigation = useNavigation();
   const [isScreenLoading, setIsScreenLoading] = useState(false);
   const [isLoadingMethod, setIsLoadingMethod] = useState<string | null>(null);
   const { signIn, session: authSession } = useSession();
@@ -32,6 +34,8 @@ export default function loginScreen() {
   // Handle Solana Wallet
   const [hasSigned, setHasSigned] = useState(false);
   const {
+    selectProvider,
+    provider,
     isConnecting: connectingSolana,
     signedMessage: signedSolana,
     signMessage: requestSignSolana,
@@ -49,7 +53,7 @@ export default function loginScreen() {
 
     if (connectingSolana) {
       setIsScreenLoading(true);
-      setIsLoadingMethod('phantom');
+      setIsLoadingMethod(provider);
     } else {
       setIsScreenLoading(false);
       setIsLoadingMethod(null);
@@ -60,12 +64,13 @@ export default function loginScreen() {
 
   useEffect(() => {
 
-    const authPhantomUser = async () => {
+    const authWalletUser = async () => {
       try {
-        const response = await api.post("/auth/phantom", {
+        const response = await api.post("/auth/solana", {
           publicKey: sessionSolana.publicKey,
           message: signedSolana.message,
-          signature: signedSolana.signature
+          signature: signedSolana.signature,
+          provider
         });
 
         if (response.data.session) {
@@ -86,7 +91,7 @@ export default function loginScreen() {
           throw new Error('Invalid session');
         }
       } catch (error) {
-        Alert.alert('Login Error', 'Failed to connect to Phantom Wallet. Please try again.');
+        Alert.alert('Login Error', 'Failed to connect with wallet. Please try again.');
       } finally {
         setIsScreenLoading(false);
         setIsLoadingMethod(null);
@@ -95,7 +100,7 @@ export default function loginScreen() {
     };
 
     if (sessionSolana && signedSolana) {
-      authPhantomUser();
+      authWalletUser();
     }
   }, [signedSolana, sessionSolana]);
 
@@ -103,19 +108,19 @@ export default function loginScreen() {
     return setTimeout(() => {
       setIsScreenLoading(false);
       setIsLoadingMethod(null);
-    }, 15000);
+    }, 10000);
   };
 
-  const handlePhantomLogin = async () => {
+
+  const handleWalletLogin = async (wallet: 'phantom' | 'solflare') => {
     try {
-      const timeout = startLoginTimeout();
+      selectProvider(wallet);
       await connectSolana();
-      clearTimeout(timeout);
     } catch (error) {
       setIsScreenLoading(false);
       setIsLoadingMethod(null);
-      console.error('Phantom login error:', error);
-      Alert.alert('Login Error', 'Failed to connect to Phantom Wallet. Please try again.');
+      console.error('Wallet login error:', error);
+      Alert.alert('Login Error', 'Failed to connect to wallet. Please try again.');
     }
   };
 
@@ -126,10 +131,8 @@ export default function loginScreen() {
 
       const redirectUri = 'nadiaradio://login';
       const authUrl = `https://www.nadiaradio.com/api/auth/twitter?source=mobile`;
-      const timeout = startLoginTimeout();
 
       const request = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
-      clearTimeout(timeout);
 
       if (request.type !== 'success' || !request.url) return;
 
@@ -158,7 +161,13 @@ export default function loginScreen() {
     <View
       style={styles.container}
     >
-      <TouchableOpacity style={styles.backButton} onPress={() => router.back() }>
+      <TouchableOpacity style={styles.backButton}  onPress={() => {
+        if (navigation.canGoBack()) {
+          navigation.goBack();
+        } else {
+          router.replace('/(tabs)/');
+        }
+      }}>
         <Ionicons name="arrow-back" size={28} color="#fff" />
       </TouchableOpacity>
 
@@ -193,17 +202,34 @@ export default function loginScreen() {
 
           <TouchableOpacity
             style={[styles.button, isScreenLoading && styles.buttonDisabled, { backgroundColor: '#ab9ff2' }]}
-            onPress={handlePhantomLogin}
+            onPress={() => handleWalletLogin('phantom')}
             disabled={isScreenLoading}
           >
             {isLoadingMethod === 'phantom' ? (
               <ActivityIndicator color="#ffffff" size="small" />
             ) : (
               <>
-                <View style={styles.phantomIcon}>
+                <View style={styles.walletIcon}>
                   <PhantomIcon width={36} height={36} />
                 </View>
                 <Text style={styles.buttonText}>Continue with Phantom</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.button, isScreenLoading && styles.buttonDisabled, { backgroundColor: '#ffef46' }]}
+            onPress={() => handleWalletLogin('solflare')}
+            disabled={isScreenLoading}
+          >
+            {isLoadingMethod === 'solflare' ? (
+              <ActivityIndicator color="#ffffff" size="small" />
+            ) : (
+              <>
+                <View style={styles.walletIcon}>
+                  <SolflareIcon width={34} height={34} />
+                </View>
+                <Text style={[styles.buttonText, { color: '#000'}]}>Continue with Solflare</Text>
               </>
             )}
           </TouchableOpacity>
@@ -272,7 +298,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 12,
   },
-  phantomIcon: {
+  walletIcon: {
     borderRadius: 9999,
     overflow: 'hidden',
   },

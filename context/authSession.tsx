@@ -50,47 +50,58 @@ export function useSession() {
 
 export function SessionProvider({ children }: PropsWithChildren) {
   const [[isAuthLoading, storedSession], setStoredSession] = useStorageState('authMember');
-  const [liveSession, setLiveSession] = useState<AuthSession | null>(
-    storedSession ? JSON.parse(storedSession) : null
-  );
+  const [liveSession, setLiveSession] = useState<AuthSession | null>(null);
 
-  // Keep live session in sync with stored session
   useEffect(() => {
-    if (storedSession) {
-      const parsed = JSON.parse(storedSession);
-      setLiveSession(parsed);
-    }
-  }, [storedSession]);
+    const validateSession = async () => {
+      if (!isAuthLoading && storedSession) {
+        try {
+          const parsed = JSON.parse(storedSession);
+          setLiveSession(parsed);
+
+          const response = await api.get('/auth/validate', {
+            headers: { Authorization: parsed.token },
+          });
+
+          if (response.status !== 200) {
+            throw new Error('Token invalid');
+          }
+
+        } catch (error) {
+          setLiveSession(null);
+          setStoredSession(null);
+        }
+      }
+    };
+    validateSession();
+  }, [isAuthLoading, storedSession]);
 
   const signOut = useCallback(() => {
     setLiveSession(null);
     setStoredSession(null);
   }, []);
 
-  const signIn = useCallback((sessionData: AuthSession) => {
+  const signIn = useCallback(async (sessionData: AuthSession) => {
     setLiveSession(sessionData);
-    setStoredSession(JSON.stringify(sessionData));
+    await setStoredSession(JSON.stringify(sessionData));
   }, []);
 
   const checkSession = useCallback(async (): Promise<boolean> => {
-    if (!liveSession?.token) {
-      signOut();
-      return false;
-    }
+    if (!liveSession?.token) return false;
 
     try {
       await api.get('/auth/validate', {
         headers: { Authorization: liveSession.token },
       });
       return true;
-    } catch (err: any) {
-      if (err?.response?.status === 401 || err?.response?.status === 440) {
-        signOut();
-        router.push('/login');
-      }
+    } catch {
       return false;
     }
-  }, [liveSession?.token, signOut]);
+  }, [liveSession?.token]);
+
+  if (isAuthLoading) {
+    return null;
+  }
 
   return (
     <AuthContext.Provider

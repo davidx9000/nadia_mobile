@@ -55,9 +55,9 @@ export function useStorageState(key: string): UseStateHook<string> {
 
   // Set
   const setValue = useCallback(
-    (value: string | null) => {
+    async (value: string | null) => {
       setState(value);
-      setStorageItemAsync(key, value);
+      await setStorageItemAsync(key, value);
     },
     [key]
   );

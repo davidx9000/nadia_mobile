@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ImageBackground, ScrollView, ActivityIndicator, Alert, Button, Dimensions  } from 'react-native';
 import { globalStyles } from '@/styles/global';
 import { router } from 'expo-router';
-import { AudioPro, AudioProContentType } from 'react-native-audio-pro';
+import { AudioPro, AudioProContentType, AudioProEventType } from 'react-native-audio-pro';
 import { Ionicons } from '@expo/vector-icons';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import AntDesign from '@expo/vector-icons/AntDesign';
@@ -27,7 +27,9 @@ const screenHeight = Dimensions.get('window').height;
 
 export default function radioStation() {
   const { session } = useSession();
-  const { on, emit, isConnected } = useWebSocket();
+  const { on, off, emit, isConnected } = useWebSocket();
+  const hasTriggeredRef = useRef(false);
+  const isTogglingRef = useRef(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [trackIdPlaying, setTrackIdPlaying] = useState<string | null>(null);
@@ -62,11 +64,34 @@ export default function radioStation() {
       showNextPrevControls: false,
       debug: false,
     });
+
+    const subscription = AudioPro.addEventListener((event) => {
+      if (event.type === AudioProEventType.PROGRESS && hasTriggeredRef.current === false) {
+        hasTriggeredRef.current = true;
+        setIsPlaying(true);
+      }
+      if (event.type === AudioProEventType.STATE_CHANGED) {
+        const state = event.payload?.state;
+        if (state === 'PLAYING') {
+          setIsPlaying(true);
+          setIsLoading(false);
+        } else if (state === 'LOADING') {
+          setIsLoading(true);
+        } else {
+          setIsPlaying(false);
+          setIsLoading(false);
+        }
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+
   }, []);
 
   useEffect(() => {
-    if (!isConnected) return;
-    emit('joinStation');
+
     const handleStationInfo = (data: any) => {
       const track = data?.currentTrack || null;
       if (!track) return;
@@ -77,7 +102,7 @@ export default function radioStation() {
 
       setTrackPlaying(track);
 
-      if(isPlaying) {
+      if (isPlaying) {
         AudioPro.updateMetadata({
           title: track.title,
           artist: track?.artist?.name ?? 'NADIA Station',
@@ -85,8 +110,18 @@ export default function radioStation() {
         });
       }
     };
+
+    if (!isConnected) return;
+
+    emit('joinStation');
     on('stationInfo', handleStationInfo);
     on('currentTrack', handleStationInfo);
+
+    return () => {
+      off('stationInfo', handleStationInfo);
+      off('currentTrack', handleStationInfo);
+    };
+
   }, [isConnected, isPlaying]);
 
   // Initialize animations
@@ -176,34 +211,47 @@ export default function radioStation() {
   };
 
   const togglePlayback = async () => {
+    if (isTogglingRef.current) return;
+    isTogglingRef.current = true;
+
     playButtonScale.value = withSequence(
       withTiming(0.9, { duration: 100 }),
       withTiming(1, { duration: 100 })
     );
 
-    setIsLoading(true);
-
     try {
       const state = AudioPro.getState();
+
+      if (isLoading) {
+        setIsLoading(false);
+        setIsPlaying(false);
+        if (state === 'PLAYING') {
+          AudioPro.stop();
+        }
+        return;
+      }
+
       if (state === 'PLAYING') {
         AudioPro.stop();
         setIsPlaying(false);
+        hasTriggeredRef.current = false;
       } else {
+        setIsLoading(true);
         await AudioPro.play(
-        {
-          id: 'nadia-stream',
-          url: streamUrl,
-          title: trackPlaying?.title ?? '',
-          artist: trackPlaying?.artist?.name ?? 'NADIA Station',
-          artwork: 'https://www.nadiaradio.com/agent/nadia/photo',
-        },
-        {
-          headers: { 
-            audio: {
-              'User-Agent': 'NADIA-App-a3f19c28-27b4-47e2-b8c9-5ddef97a21f2',
-            }
+          {
+            id: 'nadia-stream',
+            url: streamUrl,
+            title: trackPlaying?.title ?? '',
+            artist: trackPlaying?.artist?.name ?? 'NADIA Station',
+            artwork: 'https://www.nadiaradio.com/agent/nadia/photo',
+          },
+          {
+            headers: {
+              audio: {
+                'User-Agent': 'NADIA-App-a3f19c28-27b4-47e2-b8c9-5ddef97a21f2',
+              },
+            },
           }
-        }
         );
         setIsPlaying(true);
       }
@@ -211,6 +259,7 @@ export default function radioStation() {
       console.error('AudioPro error:', error);
     } finally {
       setIsLoading(false);
+      isTogglingRef.current = false;
     }
   };
 
@@ -296,7 +345,6 @@ export default function radioStation() {
                 <TouchableOpacity 
                   onPress={togglePlayback}
                   activeOpacity={0.8}
-                  disabled={isLoading}
                 >
                   <LinearGradient
                     colors={['rgba(61,23,222,1)', 'rgba(197,55,218,1)']}

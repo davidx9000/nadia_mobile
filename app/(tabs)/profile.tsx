@@ -235,10 +235,11 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   statValue: {
+    textTransform: 'capitalize',
     fontSize: 14,
     fontWeight: '600',
     color: '#333',
-    marginTop: 2,
+    paddingVertical:2,
   },
   statDivider: {
     width: 1,

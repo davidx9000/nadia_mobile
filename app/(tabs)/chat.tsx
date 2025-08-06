@@ -59,12 +59,6 @@ export default function ChatScreen() {
   }, []);
 
   useEffect(() => {
-    if (!isConnected) return;
-
-    emit('loadChat');
-    if (session) {
-      emit('joinChat', { token: session.token, station: chatStation });
-    }
 
     const handleChatEvents = (data) => {
       switch (data.type) {
@@ -90,6 +84,13 @@ export default function ChatScreen() {
           systemMessage("An unexpected error occurred. Please refresh the page.");
       }
     };
+
+    if (!isConnected) return;
+
+    emit('loadChat');
+    if (session) {
+      emit('joinChat', { token: session.token, station: chatStation });
+    }
 
     on("chatStation", handleChatEvents);
 
