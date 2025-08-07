@@ -17,6 +17,7 @@ import Animated, {
   withSequence,
   interpolate,
   runOnJS,
+  withDelay,
 } from 'react-native-reanimated';
 import {SheetManager} from 'react-native-actions-sheet';
 import { useWebSocket } from '@/context/WebSocketContext';
@@ -35,6 +36,7 @@ export default function radioStation() {
   const [trackIdPlaying, setTrackIdPlaying] = useState<string | null>(null);
   const [trackPlaying, setTrackPlaying] = useState(null);
   const [userVote, setUserVote] = useState<'like' | 'dislike' | null>(null);
+  const [voteLocked, setVoteLocked] = useState(false);
   const streamUrl = 'https://nadiaradio.com/streaming/station/nadia';
 
   // Animated values
@@ -42,20 +44,15 @@ export default function radioStation() {
   const cardScale = useSharedValue(0.9);
   const cardOpacity = useSharedValue(0);
   const liveDotOpacity = useSharedValue(1);
-  const visualizerBars = [
-    useSharedValue(0.3),
-    useSharedValue(0.5),
-    useSharedValue(0.7),
-    useSharedValue(0.4),
-    useSharedValue(0.6),
-  ];
-
-  // Set User Voting Status
-  useEffect(() => {
-    if (!session || !trackIdPlaying) return;
-    const voteStatus = session.user.voted_tracks?.[trackIdPlaying] || null;
-    setUserVote(voteStatus);
-  }, [trackIdPlaying, session]);
+  
+  // Enhanced like/dislike button animations
+  const likeButtonScale = useSharedValue(1);
+  const dislikeButtonScale = useSharedValue(1);
+  const likeButtonRotation = useSharedValue(0);
+  const dislikeButtonRotation = useSharedValue(0);
+  
+  // Enhanced visualizer with 12 bars for more dynamic effect
+  const visualizerBars = Array.from({ length: 12 }, () => useSharedValue(0.1));
 
   // Setup Media Player
   useEffect(() => {
@@ -90,28 +87,29 @@ export default function radioStation() {
 
   }, []);
 
+  // Set User Voting Status
   useEffect(() => {
+    if (!session || !trackIdPlaying) return;
+    const voteStatus = session?.user?.voted_tracks?.[trackIdPlaying] || null;
+    setUserVote(voteStatus);
+  }, [trackIdPlaying, session]);
+
+  useEffect(() => {
+    if (!isConnected) return;
 
     const handleStationInfo = (data: any) => {
       const track = data?.currentTrack || null;
       if (!track) return;
 
-      if (track.id) {
-        setTrackIdPlaying(track.id);
-      }
-
+      if (track.id) setTrackIdPlaying(track.id);
       setTrackPlaying(track);
 
-      if (isPlaying) {
-        AudioPro.updateMetadata({
-          title: track.title,
-          artist: track?.artist?.name ?? 'NADIA Station',
-          artwork: 'https://www.nadiaradio.com/agent/nadia/photo',
-        });
-      }
+      AudioPro.updateMetadata({
+        title: track.title,
+        artist: track?.artist?.name ?? 'NADIA Station',
+        artwork: 'https://www.nadiaradio.com/agent/nadia/photo',
+      });
     };
-
-    if (!isConnected) return;
 
     emit('joinStation');
     on('stationInfo', handleStationInfo);
@@ -121,8 +119,7 @@ export default function radioStation() {
       off('stationInfo', handleStationInfo);
       off('currentTrack', handleStationInfo);
     };
-
-  }, [isConnected, isPlaying]);
+  }, [isConnected]);
 
   // Initialize animations
   useEffect(() => {
@@ -140,24 +137,29 @@ export default function radioStation() {
     );
   }, []);
 
-  // Start/stop visualizer animations
   useEffect(() => {
     if (isPlaying) {
       visualizerBars.forEach((bar, index) => {
-        bar.value = withRepeat(
-          withSequence(
-            withTiming(Math.random() * 0.8 + 0.2, { duration: 300 }),
-            withTiming(Math.random() * 0.8 + 0.2, { duration: 300 }),
-            withTiming(Math.random() * 0.8 + 0.2, { duration: 300 }),
-            withTiming(Math.random() * 0.8 + 0.2, { duration: 300 })
-          ),
-          -1,
-          false
+        const delay = index * 50;
+        
+        bar.value = withDelay(
+          delay,
+          withRepeat(
+            withSequence(
+              withTiming(Math.random() * 0.7 + 0.3, { duration: 200 + Math.random() * 200 }),
+              withTiming(Math.random() * 0.9 + 0.1, { duration: 300 + Math.random() * 200 }),
+              withTiming(Math.random() * 0.6 + 0.4, { duration: 250 + Math.random() * 200 }),
+              withTiming(Math.random() * 0.8 + 0.2, { duration: 200 + Math.random() * 200 }),
+              withTiming(Math.random() * 0.5 + 0.5, { duration: 300 + Math.random() * 200 })
+            ),
+            -1,
+            false
+          )
         );
       });
     } else {
-      visualizerBars.forEach((bar) => {
-        bar.value = withTiming(0.1, { duration: 300 });
+      visualizerBars.forEach((bar, index) => {
+        bar.value = withDelay(index * 30, withTiming(0.1, { duration: 400 }));
       });
     }
   }, [isPlaying]);
@@ -176,11 +178,36 @@ export default function radioStation() {
     opacity: liveDotOpacity.value,
   }));
 
+  // Enhanced like/dislike button animated styles
+  const animatedLikeButtonStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: likeButtonScale.value },
+      { rotate: `${likeButtonRotation.value}deg` }
+    ],
+  }));
+
+  const animatedDislikeButtonStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: dislikeButtonScale.value },
+      { rotate: `${dislikeButtonRotation.value}deg` }
+    ],
+  }));
+
   const createVisualizerBarStyle = (index: number) => 
-    useAnimatedStyle(() => ({
-      height: interpolate(visualizerBars[index].value, [0, 1], [2, 25]),
-      opacity: interpolate(visualizerBars[index].value, [0, 1], [0.3, 1]),
-    }));
+    useAnimatedStyle(() => {
+      const height = interpolate(visualizerBars[index].value, [0, 1], [3, 35]);
+      const opacity = interpolate(visualizerBars[index].value, [0, 1], [0.4, 1]);
+      
+      return {
+        height,
+        opacity,
+        transform: [
+          { 
+            scaleY: interpolate(visualizerBars[index].value, [0, 1], [0.8, 1.2]) 
+          }
+        ],
+      };
+    });
 
   const handleVote = async (voteType: 'like' | 'dislike') => {
     if (!session || !trackIdPlaying) {
@@ -188,8 +215,13 @@ export default function radioStation() {
       return;
     }
 
+    if (voteLocked) return;
+    setVoteLocked(true);
+
     const isUndo = userVote === voteType;
     const action = isUndo ? 'unvote' : 'vote';
+    const buttonScale = voteType === 'like' ? likeButtonScale : dislikeButtonScale;
+    const buttonRotation = voteType === 'like' ? likeButtonRotation : dislikeButtonRotation;
 
     try {
       const response = await api.post(
@@ -199,14 +231,40 @@ export default function radioStation() {
       );
 
       if (isUndo) {
+        buttonScale.value = withSequence(
+          withTiming(0.8, { duration: 100 }),
+          withTiming(1.1, { duration: 150 }),
+          withTiming(1, { duration: 100 })
+        );
+        buttonRotation.value = withSequence(
+          withTiming(-10, { duration: 100 }),
+          withTiming(10, { duration: 100 }),
+          withTiming(0, { duration: 100 })
+        );
         delete session.user.voted_tracks[trackIdPlaying];
         setUserVote(null);
       } else {
+        buttonScale.value = withSequence(
+          withTiming(0.8, { duration: 80 }),
+          withTiming(1.2, { duration: 120 }),
+          withTiming(0.9, { duration: 80 }),
+          withTiming(1.1, { duration: 100 }),
+          withTiming(1, { duration: 80 })
+        );
+        buttonRotation.value = withSequence(
+          withTiming(-15, { duration: 100 }),
+          withTiming(15, { duration: 100 }),
+          withTiming(-10, { duration: 80 }),
+          withTiming(10, { duration: 80 }),
+          withTiming(0, { duration: 100 })
+        );
         session.user.voted_tracks[trackIdPlaying] = voteType;
         setUserVote(voteType);
       }
     } catch (err) {
       Alert.alert('Voting Error', err?.response?.data?.message || 'Failed to vote');
+    } finally {
+      setTimeout(() => setVoteLocked(false), 800);
     }
   };
 
@@ -332,15 +390,18 @@ export default function radioStation() {
                 activeOpacity={0.8}
                 onPress={() => handleVote('dislike')}
               >
-                <LinearGradient
-                  colors={['rgba(61,23,222,1)', 'rgba(197,55,218,1)']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.actionButtonGradient}
-                >
-                  <AntDesign name={userVote === 'dislike' ? 'dislike1' : 'dislike2'} size={22} color="white" />
-                </LinearGradient>
+                <Animated.View style={animatedDislikeButtonStyle}>
+                  <LinearGradient
+                    colors={['rgba(61,23,222,1)', 'rgba(197,55,218,1)']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.actionButtonGradient}
+                  >
+                    <AntDesign name={userVote === 'dislike' ? 'dislike1' : 'dislike2'} size={22} color="white" />
+                  </LinearGradient>
+                </Animated.View>
               </TouchableOpacity>
+              
               <Animated.View style={animatedPlayButtonStyle}>
                 <TouchableOpacity 
                   onPress={togglePlayback}
@@ -364,23 +425,37 @@ export default function radioStation() {
                   </LinearGradient>
                 </TouchableOpacity>
               </Animated.View>
+              
               <TouchableOpacity
                 activeOpacity={0.8}
                 onPress={() => handleVote('like')}
               >
-                <LinearGradient
-                  colors={['rgba(61,23,222,1)', 'rgba(197,55,218,1)']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.actionButtonGradient}
-                >
-                  <AntDesign name={userVote === 'like' ? 'like1' : 'like2'} size={22} color="white" />
-                </LinearGradient>
+                <Animated.View style={animatedLikeButtonStyle}>
+                  <LinearGradient
+                    colors={['rgba(61,23,222,1)', 'rgba(197,55,218,1)']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.actionButtonGradient}
+                  >
+                    <AntDesign name={userVote === 'like' ? 'like1' : 'like2'} size={22} color="white" />
+                  </LinearGradient>
+                </Animated.View>
               </TouchableOpacity>
             </View>
 
+            <View style={styles.artistControlsContainer}>
 
-            <View style={styles.controlsContainer}>
+              {/*
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={showArtistDetails}
+                style={styles.artistInfoButton}
+              >
+                <Ionicons name="information-circle-outline" size={16} color="rgba(255,255,255,0.7)" />
+                <Text style={styles.artistInfoButtonText}>Artist</Text>
+              </TouchableOpacity>
+              */}
+
               <View style={styles.tipButton}>
                 <TouchableOpacity
                   activeOpacity={0.8}
@@ -402,17 +477,23 @@ export default function radioStation() {
               </View>
             </View>
 
-            <View style={styles.visualizer}>
-              {visualizerBars.map((_, index) => (
-                <Animated.View
-                  key={index}
-                  style={[
-                    styles.visualizerBar,
-                    createVisualizerBarStyle(index)
-                  ]}
-                />
-              ))}
+            <View style={styles.visualizerContainer}>
+              <View style={styles.visualizer}>
+                {visualizerBars.map((_, index) => (
+                  <Animated.View
+                    key={index}
+                    style={[
+                      styles.visualizerBar,
+                      createVisualizerBarStyle(index),
+                      {
+                        backgroundColor: index % 3 === 0 ? '#8B27D9' : index % 3 === 1 ? '#C537DA' : '#9D4EDD',
+                      }
+                    ]}
+                  />
+                ))}
+              </View>
             </View>
+
           </Animated.View>
         </View>
     </ThemedView>
@@ -474,7 +555,7 @@ const styles = StyleSheet.create({
   },
   stationInfo: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 24,
   },
   stationTitle: {
     fontSize: 18,
@@ -509,10 +590,53 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     textAlign: 'center',
   },
+  visualizerContainer: {
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  visualizer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 2,
+    height: 40,
+    paddingHorizontal: 10,
+  },
+  visualizerBar: {
+    width: 3,
+    borderRadius: 2,
+    minHeight: 3,
+    shadowColor: '#8B27D9',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
   controlsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 20,
+    marginBottom: 20,
+  },
+  artistControlsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 10,
+  },
+  artistInfoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 20,
+  },
+  artistInfoButtonText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 14,
+    fontWeight: '500',
   },
   playButtonGradient: {
     borderWidth: 2,
@@ -551,21 +675,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap:5,
-  },
-  visualizer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 3,
-    height: 30,
-  },
-  visualizerBar: {
-    width: 4,
-    backgroundColor: 'rgba(132, 39, 217, 1)',
-    borderRadius: 2,
-    minHeight: 2,
-  },
-  tipButton: {
-    marginVertical:30,
   },
   tipButtonText: {
     color: 'white',

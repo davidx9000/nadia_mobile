@@ -143,7 +143,7 @@ export const useSolanaWallet = (): UseSolanaWalletReturn => {
             secretKey: new Uint8Array(b64decode(wallet.dappKeyPair.secretKey)),
           },
         };
-
+        selectProvider(authSession?.provider);
         setDappKeyPair(restored.dappKeyPair);
         setSession(restored);
         setPublicKey(new PublicKey(restored.publicKey));
@@ -445,7 +445,6 @@ export const useSolanaWallet = (): UseSolanaWalletReturn => {
         };
 
         const [nonce, encryptedPayload] = encryptPayload(payload, session.sharedSecret);
-        console.log(redirectLink);
         const params = new URLSearchParams({
           dapp_encryption_public_key: bs58.encode(dappKeyPair.publicKey),
           nonce: bs58.encode(nonce),

@@ -7,24 +7,24 @@ const WebSocketContext = createContext({
   on: (event: string, callback: (data: any) => void) => {},
   off: (event: string, callback: (data: any) => void) => {},
   isConnected: false,
-  chatStation: 'chat',
+  chatStation: null,
 });
 
 export const useWebSocket = () => useContext(WebSocketContext);
 
 export const WebSocketProvider = ({ children }: { children: React.ReactNode }) => {
-  const [isConnected, setIsConnected] = useState(false);
+  const [isConnected, setIsConnected] = useState(WebSocketService.socket?.connected ?? false);
 
   useEffect(() => {
+    const syncStatus = () => {
+      setIsConnected(WebSocketService.socket?.connected ?? false);
+    };
+
     WebSocketService.connect();
+    syncStatus();
 
-    WebSocketService.on('connect', () => {
-      setIsConnected(true);
-    });
-
-    WebSocketService.on('disconnect', () => {
-      setIsConnected(false);
-    });
+    WebSocketService.on('connect', syncStatus);
+    WebSocketService.on('disconnect', syncStatus);
 
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
@@ -35,6 +35,8 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
     return () => {
       subscription.remove();
       WebSocketService.disconnect();
+      WebSocketService.off('connect', syncStatus);
+      WebSocketService.off('disconnect', syncStatus);
     };
   }, []);
 
@@ -45,6 +47,7 @@ export const WebSocketProvider = ({ children }: { children: React.ReactNode }) =
         on: WebSocketService.on.bind(WebSocketService),
         off: WebSocketService.off.bind(WebSocketService),
         isConnected,
+        chatStation: 'chat',
       }}
     >
       {children}

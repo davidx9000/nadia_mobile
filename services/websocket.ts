@@ -23,6 +23,7 @@ class WebSocketService {
       autoConnect: true,
     });
 
+    this.hasListeners = false;
     this.setupListeners();
   }
 
@@ -49,8 +50,12 @@ class WebSocketService {
   }
 
   disconnect() {
-    this.socket?.disconnect();
-    this.socket = null;
+    if (this.socket) {
+      this.socket.removeAllListeners();
+      this.socket.disconnect();
+      this.socket = null;
+      this.hasListeners = false;
+    }
   }
 
   on(event: string, callback: (data: any) => void) {
