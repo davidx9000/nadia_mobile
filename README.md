@@ -7,6 +7,10 @@
 
 ![Nadia Logo](https://www.nadiaradio.com/agent/nadia/photo)
 
+## Demo
+
+[APK Available for Android by clicking here](https://github.com/davidx9000/nadia_mobile/releases/tag/v1.0.0)
+
 ## 🚀 Features
 
 - **🪪 Social & Web3 Authentication**: Seamless user authentication with social media and web3 wallets
@@ -30,3 +34,4 @@
 - **🎶 Audius** – For powering our music experience with a seamless API  
 - **📱 Solana Mobile** – For enabling smooth Web3 interactions
 - **⚛️ Expo** – For providing a fast and flexible React Native development environment  
+
